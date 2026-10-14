@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>學校學生出入紀錄系統</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 載入 face-api.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.min.js"></script>
+    <style>
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans min-h-screen">
+
+    <div class="max-w-6xl mx-auto p-4 sm:p-6">
+        <!-- 頂部標題 -->
+        <header class="bg-indigo-600 text-white rounded-xl p-6 shadow-lg mb-6 flex flex-col sm:flex-row justify-between items-center">
+            <div>
+                <h1 class="text-2xl sm:text-3xl font-bold">🏫 學校學生出入與點名系統</h1>
+                <p class="text-indigo-200 text-sm mt-1">支援多人同時辨識、進出時間自動紀錄與 CSV 匯出</p>
+            </div>
+            <div id="model-status" class="mt-4 sm:mt-0 bg-indigo-700 text-indigo-100 px-4 py-2 rounded-lg text-sm font-medium">
+                狀態：準備載入...
+            </div>
+        </header>
+
+        <!-- 頁籤導覽列 (確保隨時可點擊切換) -->
+        <div class="flex space-x-2 border-b border-gray-200 mb-6">
+            <button onclick="switchTab('register')" id="btn-tab-register" class="tab-btn px-6 py-3 font-semibold text-indigo-600 border-b-2 border-indigo-600 focus:outline-none transition-colors">
+                1. 學生註冊
+            </button>
+            <button onclick="switchTab('tracker')" id="btn-tab-tracker" class="tab-btn px-6 py-3 font-semibold text-gray-500 hover:text-indigo-600 focus:outline-none transition-colors">
+                2. 鏡頭出入紀錄
+            </button>
+        </div>
+
+        <!-- 頁籤一：學生註冊 -->
+        <div id="tab-register" class="tab-content active bg-white rounded-xl shadow-md p-6">
+            <h2 class="text-xl font-bold mb-4 text-gray-700">註冊新學生臉部資料</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="flex flex-col items-center">
+                    <div class="relative w-full max-w-md bg-black rounded-lg overflow-hidden shadow-inner aspect-video">
+                        <video id="reg-video" autoplay muted playsinline class="w-full h-full object-cover"></video>
+                        <canvas id="reg-canvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+                    </div>
+                    <button onclick="captureStudent()" id="btn-capture" class="mt-4 w-full max-w-md bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg shadow transition-all">
+                        拍照並註冊學生
+                    </button>
+                </div>
+                <div class="flex flex-col justify-between">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">學號 (ID)</label>
+                            <input type="text" id="reg-id" placeholder="例如：2026001" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">學生姓名</label>
+                            <input type="text" id="reg-name" placeholder="例如：陳大文" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        </div>
+                        <div id="reg-msg" class="text-sm font-semibold h-6 text-indigo-600"></div>
+                    </div>
+
+                    <div class="mt-6 border-t pt-4">
+                        <h3 class="font-bold text-gray-700 mb-2">已註冊學生清單 (<span id="student-count">0</span>)</h3>
+                        <div id="student-list" class="max-h-40 overflow-y-auto space-y-2 bg-gray-50 p-3 rounded-lg border">
+                            <p class="text-gray-400 text-sm">尚無註冊學生</p>
+                        </div>
+                        <button onclick="clearAllStudents()" class="mt-3 text-sm text-red-600 hover:underline">清除所有註冊資料</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 頁籤二：鏡頭出入紀錄 -->
+        <div id="tab-tracker" class="tab-content bg-white rounded-xl shadow-md p-6">
+            <div class="flex flex-col sm:flex-row justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-700">鏡頭多人在線辨識與出入紀錄</h2>
+                <div class="space-x-2 mt-2 sm:mt-0">
+                    <button onclick="startTracker()" id="btn-start" class="bg-green-600 hover:bg-green-700 text-white font-bold px-5 py-2 rounded-lg shadow">
+                        開啟鏡頭辨識
+                    </button>
+                    <button onclick="stopTracker()" class="bg-red-600 hover:bg-red-700 text-white font-bold px-5 py-2 rounded-lg shadow">
+                        停止辨識
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2 flex flex-col items-center">
+                    <div class="relative w-full bg-black rounded-lg overflow-hidden shadow-inner aspect-video">
+                        <video id="track-video" autoplay muted playsinline class="w-full h-full object-cover"></video>
+                        <canvas id="track-canvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+                    </div>
+                </div>
+                <div class="flex flex-col h-full bg-gray-50 p-4 rounded-xl border">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="font-bold text-gray-700">出入事件 CSV 紀錄</h3>
+                        <button onclick="downloadCSV()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded shadow">
+                            下載 CSV 報表
+                        </button>
+                    </div>
+                    <div id="log-container" class="flex-1 min-h-[250px] max-h-[320px] overflow-y-auto bg-white border rounded-lg p-2 space-y-1 font-mono text-xs">
+                        <p class="text-gray-400">尚無出入事件紀錄...</p>
+                    </div>
+                    <button onclick="clearLogs()" class="mt-2 text-xs text-red-600 hover:underline text-right">清空紀錄</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let labeledFaceDescriptors = [];
+        let faceMatcher = null;
+        let trackerInterval = null;
+        let attendanceLogs = [];
+        let activeStudents = {};
+
+        // 切換頁籤（確保隨時都能按，不受 AI 載入影響）
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('text-indigo-600', 'border-b-2', 'border-indigo-600');
+                el.classList.add('text-gray-500');
+            });
+
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+            const activeBtn = document.getElementById(`btn-tab-${tabName}`);
+            activeBtn.classList.add('text-indigo-600', 'border-b-2', 'border-indigo-600');
+            activeBtn.classList.remove('text-gray-500');
+
+            if (tabName === 'register') {
+                stopTracker();
+                startCamera('reg-video');
+            } else {
+                stopCamera('reg-video');
+                startCamera('track-video');
+            }
+        }
+
+        // 啟動相機
+        async function startCamera(videoElementId) {
+            try {
+                const videoEl = document.getElementById(videoElementId);
+                if (!videoEl.srcObject) {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } });
+                    videoEl.srcObject = stream;
+                }
+            } catch (err) {
+                console.warn('相機啟動失敗:', err);
+            }
+        }
+
+        function stopCamera(videoElementId) {
+            const videoEl = document.getElementById(videoElementId);
+            if (videoEl && videoEl.srcObject) {
+                videoEl.srcObject.getTracks().forEach(track => track.stop());
+                videoEl.srcObject = null;
+            }
+        }
+
+        // 非同步載入 AI 模型（加強容錯）
+        async function loadModels() {
+            const statusEl = document.getElementById('model-status');
+            statusEl.innerText = '狀態：正在下載 AI 模型...';
+            
+            try {
+                // 等待 faceapi 物件載入完成
+                let checks = 0;
+                while (typeof faceapi === 'undefined' && checks < 20) {
+                    await new Promise(r => setTimeout(r, 500));
+                    checks++;
+                }
+
+                if (typeof faceapi === 'undefined') {
+                    throw new Error('CDN 載入逾時');
+                }
+
+                const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+                
+                await Promise.all([
+                    faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+                ]);
+
+                statusEl.innerText = '狀態：AI 模型就緒 ✅';
+                statusEl.className = 'mt-4 sm:mt-0 bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium';
+                loadStoredFaces();
+            } catch (error) {
+                console.error(error);
+                statusEl.innerText = '狀態：模型載入較慢或失敗 (可嘗試重新整理)';
+                statusEl.className = 'mt-4 sm:mt-0 bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium';
+            }
+        }
+
+        // 載入已儲存學生
+        function loadStoredFaces() {
+            const savedData = localStorage.getItem('school_students');
+            if (!savedData) return;
+            const parsed = JSON.parse(savedData);
+            labeledFaceDescriptors = parsed.map(item => {
+                const descriptors = item.descriptors.map(d => new Float32Array(d));
+                return new faceapi.LabeledFaceDescriptors(item.label, descriptors);
+            });
+            if (labeledFaceDescriptors.length > 0) {
+                faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.55);
+            }
+            updateStudentListUI(parsed);
+        }
+
+        function updateStudentListUI(parsedData) {
+            const listEl = document.getElementById('student-list');
+            document.getElementById('student-count').innerText = parsedData.length;
+            if (parsedData.length === 0) {
+                listEl.innerHTML = '<p class="text-gray-400 text-sm">尚無註冊學生</p>';
+                return;
+            }
+            listEl.innerHTML = parsedData.map(s => `
+                <div class="flex justify-between items-center bg-white p-2 rounded border text-sm">
+                    <span><b>${s.label.split('_')[0]}</b> (${s.label.split('_')[1] || ''})</span>
+                    <button onclick="removeStudent('${s.label}')" class="text-red-500 hover:text-red-700 text-xs font-bold">刪除</button>
+                </div>
+            `).join('');
+        }
+
+        async function captureStudent() {
+            if (typeof faceapi === 'undefined' || !faceapi.nets.ssdMobilenetv1.isLoaded) {
+                alert('AI 模型尚未載入完畢，請稍候再試！');
+                return;
+            }
+            const studentId = document.getElementById('reg-id').value.trim();
+            const studentName = document.getElementById('reg-name').value.trim();
+            const msgEl = document.getElementById('reg-msg');
+
+            if (!studentId || !studentName) {
+                msgEl.innerText = '請先填寫學號與姓名！';
+                return;
+            }
+
+            msgEl.innerText = '正在偵測臉部...';
+            const videoEl = document.getElementById('reg-video');
+            const detection = await faceapi.detectSingleFace(videoEl).withFaceLandmarks().withFaceDescriptor();
+
+            if (!detection) {
+                msgEl.innerText = '找不到清晰人臉，請正對鏡頭！';
+                return;
+            }
+
+            const labelKey = `${studentId}_${studentName}`;
+            let existing = JSON.parse(localStorage.getItem('school_students') || '[]');
+            let studentEntry = existing.find(s => s.label === labelKey);
+            if (studentEntry) {
+                studentEntry.descriptors.push(Array.from(detection.descriptor));
+            } else {
+                existing.push({ label: labelKey, descriptors: [Array.from(detection.descriptor)] });
+            }
+
+            localStorage.setItem('school_students', JSON.stringify(existing));
+            loadStoredFaces();
+            msgEl.innerText = `成功註冊：${studentName}！`;
+            document.getElementById('reg-id').value = '';
+            document.getElementById('reg-name').value = '';
+        }
+
+        function removeStudent(label) {
+            let existing = JSON.parse(localStorage.getItem('school_students') || '[]');
+            existing = existing.filter(s => s.label !== label);
+            localStorage.setItem('school_students', JSON.stringify(existing));
+            loadStoredFaces();
+        }
+
+        function clearAllStudents() {
+            if (confirm('確定清除所有學生？')) {
+                localStorage.removeItem('school_students');
+                labeledFaceDescriptors = [];
+                faceMatcher = null;
+                updateStudentListUI([]);
+            }
+        }
+
+        async function startTracker() {
+            if (!faceMatcher) {
+                alert('請先至「學生註冊」頁籤新增至少一位學生！');
+                return;
+            }
+            await startCamera('track-video');
+            const videoEl = document.getElementById('track-video');
+            const canvasEl = document.getElementById('track-canvas');
+            
+            videoEl.onloadedmetadata = () => {
+                canvasEl.width = videoEl.videoWidth;
+                canvasEl.height = videoEl.videoHeight;
+            };
+
+            if (trackerInterval) clearInterval(trackerInterval);
+
+            trackerInterval = setInterval(async () => {
+                if (videoEl.paused || videoEl.ended) return;
+
+                const detections = await faceapi.detectAllFaces(videoEl).withFaceLandmarks().withFaceDescriptors();
+                const ctx = canvasEl.getContext('2d');
+                ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+
+                const dims = faceapi.matchDimensions(canvasEl, videoEl, true);
+                const resizedDetections = faceapi.resizeResults(detections, dims);
+                const now = new Date();
+
+                resizedDetections.forEach(detection => {
+                    const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+                    if (bestMatch.label !== 'unknown') {
+                        const [id, name] = bestMatch.label.split('_');
+                        handleStudentAttendance(id, name, now);
+                    }
+                    const box = detection.detection.box;
+                    new faceapi.draw.DrawBox(box, { 
+                        label: bestMatch.label !== 'unknown' ? bestMatch.label.replace('_', ' ') : '未知',
+                        boxColor: bestMatch.label !== 'unknown' ? '#10B981' : '#EF4444'
+                    }).draw(canvasEl);
+                });
+
+                checkStudentExits(now);
+            }, 1000);
+        }
+
+        function stopTracker() {
+            if (trackerInterval) { clearInterval(trackerInterval); trackerInterval = null; }
+            stopCamera('track-video');
+        }
+
+        function handleStudentAttendance(id, name, time) {
+            const timeStr = time.toLocaleTimeString();
+            if (!activeStudents[id]) {
+                activeStudents[id] = { id, name, entryTime: timeStr, lastSeen: time };
+                addLogEntry(`[進入] ${name} (${id}) 於 ${timeStr}`);
+            } else {
+                activeStudents[id].lastSeen = time;
+            }
+        }
+
+        function checkStudentExits(now) {
+            for (const key in activeStudents) {
+                const student = activeStudents[key];
+                if ((now - student.lastSeen) / 1000 > 6) {
+                    const exitTimeStr = new Date().toLocaleTimeString();
+                    addLogEntry(`[離開] ${student.name} (${student.id}) 離開`);
+                    attendanceLogs.push({ id: student.id, name: student.name, date: new Date().toLocaleDateString(), entry: student.entryTime, exit: exitTimeStr });
+                    delete activeStudents[key];
+                }
+            }
+        }
+
+        function addLogEntry(text) {
+            const container = document.getElementById('log-container');
+            if (container.innerHTML.includes('尚無出入事件紀錄')) container.innerHTML = '';
+            const p = document.createElement('div');
+            p.className = 'border-b pb-1 text-gray-700';
+            p.innerText = `[${new Date().toLocaleTimeString()}] ${text}`;
+            container.prepend(p);
+        }
+
+        function clearLogs() {
+            attendanceLogs = [];
+            document.getElementById('log-container').innerHTML = '<p class="text-gray-400">尚無出入事件紀錄...</p>';
+        }
+
+        function downloadCSV() {
+            if (attendanceLogs.length === 0) { alert('沒有紀錄可匯出！'); return; }
+            let csvContent = "\uFEFF學號,姓名,日期,進入時間,離開時間\n";
+            attendanceLogs.forEach(r => { csvContent += `${r.id},${r.name},${r.date},${r.entry},${r.exit}\n`; });
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `attendance_${new Date().toISOString().slice(0,10)}.csv`;
+            a.click();
+        }
+
+        // 初始化
+        window.onload = () => {
+            loadModels();
+            startCamera('reg-video');
+        };
+    </script>
+</body>
+</html>
